@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>가위바위보 이미지 판별기</title>
+    <style>
+        body {
+            font-family: 'Malgun Gothic', sans-serif;
+            background-color: #f5f7fa;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            min-height: 100vh;
+            box-sizing: border-box;
+        }
+
+        .container {
+            width: 100%;
+            max-width: 500px;
+            background: white;
+            padding: 24px;
+            border-radius: 16px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+            text-align: center;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+            font-size: 1.6rem;
+        }
+
+        /* 파일 업로드 버튼 스타일링 */
+        .file-upload-wrapper {
+            margin-bottom: 20px;
+        }
+
+        .file-upload-btn {
+            display: inline-block;
+            background-color: #4f46e5;
+            color: white;
+            padding: 12px 24px;
+            font-size: 1rem;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+
+        .file-upload-btn:hover {
+            background-color: #4338ca;
+        }
+
+        #image-input {
+            display: none; /* 기본 파일 선택 창은 숨김 */
+        }
+
+        /* 업로드 이미지 미리보기 영역 */
+        .preview-box {
+            width: 100%;
+            max-width: 300px;
+            aspect-ratio: 1 / 1;
+            background-color: #e5e7eb;
+            border-radius: 12px;
+            margin: 0 auto 20px auto;
+            overflow: hidden;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            border: 2px dashed #cbd5e1;
+        }
+
+        #image-preview {
+            width: 100%;
+            height: 100%;
+            object-fit: cover;
+            display: none; /* 이미지 선택 전에는 숨김 */
+        }
+
+        .placeholder-text {
+            color: #64748b;
+            font-size: 0.9rem;
+        }
+
+        /* 결과 창 스타일 */
+        #result-container {
+            font-size: 1.8rem;
+            font-weight: 800;
+            color: #1e1b4b;
+            padding: 15px 20px;
+            background-color: #e0e7ff;
+            border-radius: 8px;
+            box-sizing: border-box;
+            display: none; /* 예측 시작 전엔 숨김 */
+        }
+
+        #loading-text {
+            color: #64748b;
+            font-size: 1rem;
+            margin-bottom: 10px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="container">
+    <h1>가위바위보 이미지 판별</h1>
+    <div id="loading-text">모델 로딩 중... 잠시만 기다려주세요.</div>
+    
+    <div class="file-upload-wrapper">
+        <label for="image-input" class="file-upload-btn">이미지 선택하기</label>
+        <input type="file" id="image-input" accept="image/*" onchange="handleImageUpload(event)" disabled>
+    </div>
+    
+    <div class="preview-box">
+        <span class="placeholder-text" id="placeholder">여기에 이미지가 표시됩니다</span>
+        <img id="image-preview" alt="미리보기">
+    </div>
+
+    <div id="result-container">결과 대기 중...</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs@latest/dist/tf.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@teachablemachine/image@latest/dist/teachablemachine-image.min.js"></script>
+<script type="text/javascript">
+    // Teachable Machine 모델 URL 설정 (전달해주신 URL 유지)
+    const URL = "https://teachablemachine.withgoogle.com/models/aiye8xToZ/";
+
+    let model, maxPredictions;
+    const imageInput = document.getElementById("image-input");
+    const imagePreview = document.getElementById("image-preview");
+    const placeholder = document.getElementById("placeholder");
+    const resultContainer = document.getElementById("result-container");
+    const loadingText = document.getElementById("loading-text");
+
+    // 페이지 로드 시 자동으로 모델 로드
+    async function init() {
+        const modelURL = URL + "model.json";
+        const metadataURL = URL + "metadata.json";
+
+        try {
+            model = await tmImage.load(modelURL, metadataURL);
+            maxPredictions = model.getTotalClasses();
+            
+            // 로딩 완료 후 파일 업로드 활성화
+            loadingText.innerText = "모델이 성공적으로 로드되었습니다! 판별할 이미지를 업로드하세요.";
+            imageInput.disabled = false;
+        } catch (error) {
+            console.error("모델 로드 실패:", error);
+            loadingText.innerText = "모델 로드 실패. URL을 다시 확인해주세요.";
+        }
+    }
+
+    // 이미지 파일 업로드 이벤트 핸들러
+    function handleImageUpload(event) {
+        const file = event.target.files[0];
+        if (!file) return;
+
+        // FileReader를 이용해 업로드된 이미지를 Base64 데이터로 읽기
+        const reader = new FileReader();
+        reader.onload = function(e) {
+            // 이미지 엘리먼트에 소스 삽입
+            imagePreview.src = e.target.result;
+            imagePreview.style.display = "block";
+            placeholder.style.display = "none";
+            
+            // 이미지 로드가 완료되면 예측 수행
+            imagePreview.onload = async function() {
+                await predict();
+            }
+        }
+        reader.readAsDataURL(file);
+    }
+
+    // 업로드된 이미지 분석하기
+    async function predict() {
+        if (!model) return;
+
+        resultContainer.style.display = "block";
+        resultContainer.innerHTML = "분석 중...";
+
+        // model.predict()는 canvas뿐만 아니라 img 태그 엘리먼트도 바로 인식합니다.
+        const prediction = await model.predict(imagePreview);
+        
+        let highestClassName = "";
+        let highestProbability = 0;
+
+        // 가장 신뢰도(확률)가 높은 예측 항목 검색
+        for (let i = 0; i < maxPredictions; i++) {
+            if (prediction[i].probability > highestProbability) {
+                highestProbability = prediction[i].probability;
+                highestClassName = prediction[i].className;
+            }
+        }
+
+        // 결과 화면 업데이트
+        if (highestClassName) {
+            resultContainer.innerHTML = `${highestClassName}`;
+        } else {
+            resultContainer.innerHTML = "판별 실패";
+        }
+    }
+
+    // 스크립트가 실행될 때 모델을 미리 준비합니다.
+    init();
+</script>
+
+</body>
+</html>
